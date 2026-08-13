@@ -1,0 +1,92 @@
+[
+  {
+    "id": "gmail",
+    "name": "Gmail",
+    "description": "E-mail corporativo e comunicação com clientes.",
+    "startUrl": "https://mail.google.com/",
+    "category": "Comunicação",
+    "permissions": ["navigation", "notifications", "downloads"],
+    "enabled": true,
+    "accent": "#EA4335"
+  },
+  {
+    "id": "calendar",
+    "name": "Google Calendar",
+    "description": "Agenda, reuniões comerciais e compromissos.",
+    "startUrl": "https://calendar.google.com/",
+    "category": "Produtividade",
+    "permissions": ["navigation", "notifications"],
+    "enabled": true,
+    "accent": "#4285F4"
+  },
+  {
+    "id": "notion",
+    "name": "Notion",
+    "description": "Documentação, processos e bases operacionais.",
+    "startUrl": "https://www.notion.so/",
+    "category": "Produtividade",
+    "permissions": ["navigation", "notifications", "downloads"],
+    "enabled": true,
+    "accent": "#151515"
+  },
+  {
+    "id": "hubspot",
+    "name": "HubSpot",
+    "description": "CRM para pipeline, contatos e atividades comerciais.",
+    "startUrl": "https://app.hubspot.com/login",
+    "category": "CRM",
+    "permissions": ["navigation", "notifications", "downloads"],
+    "enabled": true,
+    "accent": "#FF7A59"
+  },
+  {
+    "id": "salesforce",
+    "name": "Salesforce",
+    "description": "Gestão de contas, oportunidades e forecast.",
+    "startUrl": "https://login.salesforce.com/",
+    "category": "CRM",
+    "permissions": ["navigation", "notifications", "downloads"],
+    "enabled": true,
+    "accent": "#00A1E0"
+  },
+  {
+    "id": "looker",
+    "name": "Looker Studio",
+    "description": "Dashboards e indicadores de performance.",
+    "startUrl": "https://lookerstudio.google.com/",
+    "category": "Dados",
+    "permissions": ["navigation", "downloads"],
+    "enabled": true,
+    "accent": "#34A853"
+  },
+  {
+    "id": "plataforma-comercial",
+    "name": "Plataforma Comercial",
+    "description": "Plataforma central da operação comercial G4 Educação.",
+    "startUrl": "https://plataformacomercial.g4educacao.com/",
+    "category": "Interno",
+    "permissions": ["navigation", "notifications", "downloads"],
+    "enabled": true,
+    "accent": "#6D5DFB"
+  },
+  {
+    "id": "performance-comercial",
+    "name": "Performance Comercial",
+    "description": "Indicadores e acompanhamento da performance comercial.",
+    "startUrl": "https://performance-comercial.g4business.com/",
+    "category": "Dados",
+    "permissions": ["navigation", "downloads"],
+    "enabled": true,
+    "accent": "#13A36D"
+  },
+  {
+    "id": "enablement-comercial",
+    "name": "Enablement Comercial",
+    "description": "Conteúdos, capacitação e recursos para o time comercial.",
+    "startUrl": "https://enablement-comercial.g4educacao.com/",
+    "category": "Interno",
+    "permissions": ["navigation", "notifications", "downloads"],
+    "enabled": true,
+    "accent": "#F97316"
+  }
+]
