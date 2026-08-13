@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BrowserWindow, clipboard, Menu, type MenuItemConstructorOptions, WebContentsView, session, shell } from 'electron';
+import { BrowserWindow, clipboard, Menu, type MenuItemConstructorOptions, WebContentsView, type WebContents, session, shell } from 'electron';
 import type { AppRuntimeState, AppTab, OpenApp, PersistedAppTabs, PluginManifest } from '../shared/types';
 
 const TOP_BAR = 84;
@@ -127,6 +127,7 @@ export class AppViewManager {
 
   getOpenPluginIds(): string[] { return [...this.apps.keys()]; }
   getActivePluginId(): string | null { return this.activePluginId; }
+  getActiveWebContents(): WebContents | null { return this.getActiveTab()?.tab.view.webContents ?? null; }
 
   getTabsSnapshot(): Record<string, PersistedAppTabs> {
     return Object.fromEntries([...this.apps].map(([pluginId, app]) => [pluginId, {

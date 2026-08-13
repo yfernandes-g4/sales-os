@@ -18,6 +18,8 @@ Aplicativo desktop baseado em Electron/Chromium para centralizar as ferramentas 
 - controles de voltar, avançar, recarregar, ocultar e encerrar;
 - cadastro de aplicações web personalizadas;
 - importação e exportação da configuração do workspace;
+- Macro Studio com gravação de cliques e preenchimentos, editor de etapas e reprodução;
+- proteção automática contra captura de senhas, tokens, OTPs e campos sensíveis;
 - renderer isolado, sem acesso direto a Node.js ou ao sistema de arquivos.
 
 ## Requisitos
@@ -62,10 +64,13 @@ Use **Administração → Adicionar aplicativo**, ou edite `resources/plugins.js
 
 ## Limites do MVP
 
+O Macro Studio inicial executa cliques, preenchimentos, navegação e esperas no aplicativo associado. Condições, loops, variáveis, agendamento e sincronização remota ainda não fazem parte deste corte.
+
 Não há backend, SSO próprio, assinatura de plugins, telemetria central ou controle remoto. A base foi separada para receber essas camadas posteriormente. Controle remoto deverá sempre exigir consentimento visível e auditoria.
 
 ## Documentação
 
 - [Arquitetura](docs/ARCHITECTURE.md)
 - [Manifesto de plugins](docs/PLUGIN_MANIFEST.md)
+- [Macro Studio](docs/MACRO_STUDIO.md)
 - [Roadmap](docs/ROADMAP.md)

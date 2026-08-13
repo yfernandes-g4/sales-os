@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppRuntimeState, PluginManifest, SalesOSApi, WorkspaceState } from '../shared/types';
+import type { AppRuntimeState, MacroDefinition, MacroRuntimeEvent, MacroStep, PluginManifest, SalesOSApi, WorkspaceState } from '../shared/types';
 
 const api: SalesOSApi = {
   catalog: () => ipcRenderer.invoke('catalog:list') as Promise<PluginManifest[]>,
@@ -18,10 +18,22 @@ const api: SalesOSApi = {
   activateTab: (pluginId, tabId) => ipcRenderer.invoke('app:activate-tab', pluginId, tabId) as Promise<void>,
   closeTab: (pluginId, tabId) => ipcRenderer.invoke('app:close-tab', pluginId, tabId) as Promise<void>,
   navigate: (action) => ipcRenderer.invoke('app:navigate', action) as Promise<void>,
+  listMacros: () => ipcRenderer.invoke('macro:list') as Promise<MacroDefinition[]>,
+  saveMacro: (macro) => ipcRenderer.invoke('macro:save', macro) as Promise<MacroDefinition[]>,
+  deleteMacro: (macroId) => ipcRenderer.invoke('macro:delete', macroId) as Promise<MacroDefinition[]>,
+  startMacroRecording: (pluginId) => ipcRenderer.invoke('macro:record-start', pluginId) as Promise<void>,
+  stopMacroRecording: () => ipcRenderer.invoke('macro:record-stop') as Promise<MacroStep[]>,
+  runMacro: (macroId) => ipcRenderer.invoke('macro:run', macroId) as Promise<void>,
+  cancelMacro: () => ipcRenderer.invoke('macro:cancel') as Promise<void>,
   onAppState: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, state: AppRuntimeState) => callback(state);
     ipcRenderer.on('app:state', listener);
     return () => ipcRenderer.removeListener('app:state', listener);
+  },
+  onMacroEvent: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, runtimeEvent: MacroRuntimeEvent) => callback(runtimeEvent);
+    ipcRenderer.on('macro:event', listener);
+    return () => ipcRenderer.removeListener('macro:event', listener);
   },
 };
 

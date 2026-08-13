@@ -12,6 +12,7 @@ const defaults: WorkspaceState = {
   appTabs: {},
   disabledPluginIds: [],
   customPlugins: [],
+  macros: [],
 };
 
 export class WorkspaceStore {

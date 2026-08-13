@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, ArrowRight, Blocks, ChevronRight, CircleUserRound, Download, Home,
   LayoutGrid, LoaderCircle, Plus, RefreshCw, Search, Settings, ShieldCheck, Star,
-  Store, Upload, X,
+  Store, Upload, WandSparkles, Square, X,
 } from 'lucide-react';
-import type { OpenApp, PluginCategory, PluginManifest, WorkspaceState } from '../shared/types';
+import type { MacroStep, OpenApp, PluginCategory, PluginManifest, WorkspaceState } from '../shared/types';
+import MacroStudio from './components/MacroStudio';
 
-type Page = 'home' | 'store' | 'admin';
+type Page = 'home' | 'store' | 'admin' | 'macros';
 
 const emptyState: WorkspaceState = {
   installedPluginIds: [], favoritePluginIds: [], recentPluginIds: [], openPluginIds: [], lastActivePluginId: null,
-  appTabs: {}, disabledPluginIds: [], customPlugins: [],
+  appTabs: {}, disabledPluginIds: [], customPlugins: [], macros: [],
 };
 
 function AppIcon({ plugin, size = 'normal' }: { plugin: PluginManifest; size?: 'normal' | 'small' }) {
@@ -58,6 +59,9 @@ export default function App() {
   const [category, setCategory] = useState<'Todos' | PluginCategory>('Todos');
   const [showAdd, setShowAdd] = useState(false);
   const [notice, setNotice] = useState('');
+  const [recordingPluginId, setRecordingPluginId] = useState<string | null>(null);
+  const [recordedSteps, setRecordedSteps] = useState<MacroStep[] | null>(null);
+  const [macroRunning, setMacroRunning] = useState(false);
 
   const refresh = async () => {
     const [nextCatalog, nextWorkspace] = await Promise.all([window.salesOS.catalog(), window.salesOS.state()]);
@@ -67,10 +71,17 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-    return window.salesOS.onAppState((runtime) => {
+    const removeAppListener = window.salesOS.onAppState((runtime) => {
       setOpenApp(runtime.activeApp);
       setOpenPluginIds(runtime.openPluginIds);
     });
+    const removeMacroListener = window.salesOS.onMacroEvent((event) => {
+      if (event.type === 'recording-started') setRecordingPluginId(event.pluginId ?? null);
+      if (event.type === 'recording-stopped') setRecordingPluginId(null);
+      if (event.type === 'run-started') setMacroRunning(true);
+      if (['run-completed', 'run-failed', 'run-cancelled'].includes(event.type)) setMacroRunning(false);
+    });
+    return () => { removeAppListener(); removeMacroListener(); };
   }, []);
 
   const installed = useMemo(
@@ -95,7 +106,19 @@ export default function App() {
   const favorite = async (pluginId: string) => setWorkspace(await window.salesOS.toggleFavorite(pluginId));
   const enabled = async (pluginId: string) => setWorkspace(await window.salesOS.toggleEnabled(pluginId));
   const hideApp = async () => { await window.salesOS.hideApp(); setOpenApp(null); };
-  const closeApp = async (pluginId: string) => { await window.salesOS.closeApp(pluginId); }; 
+  const closeApp = async (pluginId: string) => { await window.salesOS.closeApp(pluginId); };
+  const startMacroRecording = async (pluginId: string) => {
+    await open(pluginId);
+    await window.salesOS.startMacroRecording(pluginId);
+    setRecordingPluginId(pluginId);
+  };
+  const stopMacroRecording = async () => {
+    const steps = await window.salesOS.stopMacroRecording();
+    setRecordingPluginId(null);
+    setRecordedSteps(steps);
+    await hideApp();
+    setPage('macros');
+  };
 
   const toast = (message: string) => {
     setNotice(message);
@@ -110,6 +133,7 @@ export default function App() {
           <button className={page === 'home' && !openApp ? 'active' : ''} onClick={() => { void hideApp(); setPage('home'); }} title="Início"><Home /></button>
           <button className={page === 'store' && !openApp ? 'active' : ''} onClick={() => { void hideApp(); setPage('store'); }} title="Loja"><Store /></button>
           <button className={page === 'admin' && !openApp ? 'active' : ''} onClick={() => { void hideApp(); setPage('admin'); }} title="Administração"><Settings /></button>
+          <button className={page === 'macros' && !openApp ? 'active' : ''} onClick={() => { void hideApp(); setPage('macros'); }} title="Macro Studio"><WandSparkles /></button>
         </nav>
         {openPluginIds.length > 0 && <div className="running-apps">
           <span>ABERTOS</span>
@@ -153,6 +177,8 @@ export default function App() {
               <div className="address-bar">
                 <ShieldCheck size={15} /><span>{openApp.url}</span>
               </div>
+              {recordingPluginId && <button className="recording-stop" onClick={() => void stopMacroRecording()}><Square size={14} fill="currentColor" /> Parar gravação</button>}
+              {macroRunning && <button className="recording-stop" onClick={() => void window.salesOS.cancelMacro()}><Square size={14} fill="currentColor" /> Cancelar macro</button>}
               <button className="close-app" onClick={() => void hideApp()}><LayoutGrid size={18} /> Workspace</button>
             </div>
           </>
@@ -189,6 +215,8 @@ export default function App() {
             <div className="app-grid">{filtered.map((plugin) => <AppCard key={plugin.id} plugin={plugin} installed={workspace.installedPluginIds.includes(plugin.id)} favorite={workspace.favoritePluginIds.includes(plugin.id)} disabled={workspace.disabledPluginIds.includes(plugin.id)} onOpen={() => void open(plugin.id)} onInstall={() => void install(plugin.id)} onFavorite={() => void favorite(plugin.id)} />)}</div>
           </>
         )}
+
+        {page === 'macros' && <MacroStudio catalog={catalog} installedPluginIds={workspace.installedPluginIds} recordedSteps={recordedSteps} onConsumeRecording={() => setRecordedSteps(null)} onStartRecording={startMacroRecording} onRunState={setMacroRunning} notify={toast} />}
 
         {page === 'admin' && (
           <>

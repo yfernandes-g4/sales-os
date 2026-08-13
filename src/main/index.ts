@@ -1,12 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, ipcMain, Menu } from 'electron';
-import type { PersistedAppTabs, PluginManifest, WorkspaceState } from '../shared/types';
+import type { MacroDefinition, PersistedAppTabs, PluginManifest, WorkspaceState } from '../shared/types';
 import { AppViewManager } from './appViewManager';
+import { MacroEngine } from './macroEngine';
 import { loadCatalog, WorkspaceStore } from './store';
 
 let mainWindow: BrowserWindow | null = null;
 let viewManager: AppViewManager | null = null;
+let macroEngine: MacroEngine | null = null;
 let store: WorkspaceStore;
 let restoringRuntime = false;
 let runtimePersistTimer: NodeJS.Timeout | null = null;
@@ -136,6 +138,34 @@ function registerIpc(): void {
   ipcMain.handle('app:activate-tab', (_event, pluginId: string, tabId: string) => viewManager?.activateTab(pluginId, tabId));
   ipcMain.handle('app:close-tab', (_event, pluginId: string, tabId: string) => viewManager?.closeTab(pluginId, tabId));
   ipcMain.handle('app:navigate', (_event, action: 'back' | 'forward' | 'reload' | 'home') => viewManager?.navigate(action));
+  ipcMain.handle('macro:list', () => store.get().macros);
+  ipcMain.handle('macro:save', (_event, input: MacroDefinition) => mutate((state) => {
+    const now = new Date().toISOString();
+    const existing = state.macros.find((macro) => macro.id === input.id);
+    const macro: MacroDefinition = {
+      ...input,
+      name: input.name.trim() || 'Macro sem nome',
+      description: input.description.trim(),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      steps: input.steps.slice(0, 200),
+    };
+    return { ...state, macros: [...state.macros.filter((item) => item.id !== macro.id), macro] };
+  }).macros);
+  ipcMain.handle('macro:delete', (_event, macroId: string) => mutate((state) => ({
+    ...state, macros: state.macros.filter((macro) => macro.id !== macroId),
+  })).macros);
+  ipcMain.handle('macro:record-start', async (_event, pluginId: string) => macroEngine?.startRecording(pluginId));
+  ipcMain.handle('macro:record-stop', async () => macroEngine?.stopRecording() ?? []);
+  ipcMain.handle('macro:run', async (_event, macroId: string) => {
+    const macro = store.get().macros.find((item) => item.id === macroId);
+    if (!macro) throw new Error('Macro não encontrada.');
+    const plugin = catalog().find((item) => item.id === macro.pluginId);
+    if (!plugin) throw new Error('Aplicativo da macro não encontrado.');
+    await viewManager?.open(plugin, store.get().appTabs[plugin.id]);
+    await macroEngine?.run(macro);
+  });
+  ipcMain.handle('macro:cancel', () => macroEngine?.cancel());
 }
 
 async function createWindow(): Promise<void> {
@@ -156,6 +186,7 @@ async function createWindow(): Promise<void> {
   });
   Menu.setApplicationMenu(null);
   viewManager = new AppViewManager(mainWindow, persistRuntime);
+  macroEngine = new MacroEngine(mainWindow, viewManager);
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   mainWindow.webContents.on('did-finish-load', () => {
     const capturePath = process.env.SALES_OS_CAPTURE;
@@ -167,6 +198,7 @@ async function createWindow(): Promise<void> {
     }
   });
   mainWindow.on('closed', () => {
+    macroEngine = null;
     viewManager = null;
     mainWindow = null;
   });

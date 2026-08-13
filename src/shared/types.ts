@@ -45,6 +45,37 @@ export interface AppRuntimeState {
   openPluginIds: string[];
 }
 
+export type MacroStepType = 'click' | 'input' | 'navigate' | 'wait';
+
+export interface MacroStep {
+  id: string;
+  type: MacroStepType;
+  label: string;
+  selector?: string;
+  value?: string;
+  url?: string;
+  durationMs?: number;
+}
+
+export interface MacroDefinition {
+  id: string;
+  name: string;
+  description: string;
+  pluginId: string;
+  createdAt: string;
+  updatedAt: string;
+  steps: MacroStep[];
+}
+
+export interface MacroRuntimeEvent {
+  type: 'recording-started' | 'recording-step' | 'recording-stopped' | 'run-started' | 'run-step' | 'run-completed' | 'run-failed' | 'run-cancelled';
+  macroId?: string;
+  pluginId?: string;
+  step?: MacroStep;
+  stepIndex?: number;
+  message?: string;
+}
+
 export interface WorkspaceState {
   installedPluginIds: string[];
   favoritePluginIds: string[];
@@ -54,6 +85,7 @@ export interface WorkspaceState {
   appTabs: Record<string, PersistedAppTabs>;
   disabledPluginIds: string[];
   customPlugins: PluginManifest[];
+  macros: MacroDefinition[];
 }
 
 export interface SalesOSApi {
@@ -73,5 +105,13 @@ export interface SalesOSApi {
   activateTab: (pluginId: string, tabId: string) => Promise<void>;
   closeTab: (pluginId: string, tabId: string) => Promise<void>;
   navigate: (action: 'back' | 'forward' | 'reload' | 'home') => Promise<void>;
+  listMacros: () => Promise<MacroDefinition[]>;
+  saveMacro: (macro: MacroDefinition) => Promise<MacroDefinition[]>;
+  deleteMacro: (macroId: string) => Promise<MacroDefinition[]>;
+  startMacroRecording: (pluginId: string) => Promise<void>;
+  stopMacroRecording: () => Promise<MacroStep[]>;
+  runMacro: (macroId: string) => Promise<void>;
+  cancelMacro: () => Promise<void>;
   onAppState: (callback: (state: AppRuntimeState) => void) => () => void;
+  onMacroEvent: (callback: (event: MacroRuntimeEvent) => void) => () => void;
 }
