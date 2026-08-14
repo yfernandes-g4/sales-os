@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, ipcMain, Menu } from 'electron';
-import type { MacroDefinition, PersistedAppTabs, PluginManifest, WorkspaceState } from '../shared/types';
+import type { MacroDefinition, MacroInputValues, PersistedAppTabs, PluginManifest, WorkspaceState } from '../shared/types';
 import { AppViewManager } from './appViewManager';
 import { MacroEngine } from './macroEngine';
 import { loadCatalog, WorkspaceStore } from './store';
@@ -53,6 +53,16 @@ function ensurePlugin(input: PluginManifest): PluginManifest {
 
 function mutate(fn: (state: WorkspaceState) => WorkspaceState): WorkspaceState {
   return store.update(fn);
+}
+
+function normalizeMacro(input: MacroDefinition): MacroDefinition {
+  return {
+    ...input,
+    executionType: input.executionType ?? 'actions',
+    inputs: input.inputs ?? [],
+    output: input.output ?? { type: 'summary', title: 'Resultado da macro' },
+    successCriteria: input.successCriteria ?? { requireAllSteps: true, requireOutput: false, minimumProcessed: 0, maximumFailures: 0 },
+  };
 }
 
 function registerIpc(): void {
@@ -138,18 +148,18 @@ function registerIpc(): void {
   ipcMain.handle('app:activate-tab', (_event, pluginId: string, tabId: string) => viewManager?.activateTab(pluginId, tabId));
   ipcMain.handle('app:close-tab', (_event, pluginId: string, tabId: string) => viewManager?.closeTab(pluginId, tabId));
   ipcMain.handle('app:navigate', (_event, action: 'back' | 'forward' | 'reload' | 'home') => viewManager?.navigate(action));
-  ipcMain.handle('macro:list', () => store.get().macros);
+  ipcMain.handle('macro:list', () => store.get().macros.map(normalizeMacro));
   ipcMain.handle('macro:save', (_event, input: MacroDefinition) => mutate((state) => {
     const now = new Date().toISOString();
     const existing = state.macros.find((macro) => macro.id === input.id);
-    const macro: MacroDefinition = {
+    const macro: MacroDefinition = normalizeMacro({
       ...input,
       name: input.name.trim() || 'Macro sem nome',
       description: input.description.trim(),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       steps: input.steps.slice(0, 200),
-    };
+    });
     return { ...state, macros: [...state.macros.filter((item) => item.id !== macro.id), macro] };
   }).macros);
   ipcMain.handle('macro:delete', (_event, macroId: string) => mutate((state) => ({
@@ -157,13 +167,14 @@ function registerIpc(): void {
   })).macros);
   ipcMain.handle('macro:record-start', async (_event, pluginId: string) => macroEngine?.startRecording(pluginId));
   ipcMain.handle('macro:record-stop', async () => macroEngine?.stopRecording() ?? []);
-  ipcMain.handle('macro:run', async (_event, macroId: string) => {
-    const macro = store.get().macros.find((item) => item.id === macroId);
+  ipcMain.handle('macro:run', async (_event, macroId: string, inputs: MacroInputValues = {}) => {
+    const stored = store.get().macros.find((item) => item.id === macroId);
+    const macro = stored ? normalizeMacro(stored) : undefined;
     if (!macro) throw new Error('Macro não encontrada.');
     const plugin = catalog().find((item) => item.id === macro.pluginId);
     if (!plugin) throw new Error('Aplicativo da macro não encontrado.');
     await viewManager?.open(plugin, store.get().appTabs[plugin.id]);
-    await macroEngine?.run(macro);
+    return macroEngine?.run(macro, inputs);
   });
   ipcMain.handle('macro:cancel', () => macroEngine?.cancel());
 }

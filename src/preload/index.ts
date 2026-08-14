@@ -23,7 +23,7 @@ const api: SalesOSApi = {
   deleteMacro: (macroId) => ipcRenderer.invoke('macro:delete', macroId) as Promise<MacroDefinition[]>,
   startMacroRecording: (pluginId) => ipcRenderer.invoke('macro:record-start', pluginId) as Promise<void>,
   stopMacroRecording: () => ipcRenderer.invoke('macro:record-stop') as Promise<MacroStep[]>,
-  runMacro: (macroId) => ipcRenderer.invoke('macro:run', macroId) as Promise<void>,
+  runMacro: (macroId, inputs) => ipcRenderer.invoke('macro:run', macroId, inputs),
   cancelMacro: () => ipcRenderer.invoke('macro:cancel') as Promise<void>,
   onAppState: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, state: AppRuntimeState) => callback(state);

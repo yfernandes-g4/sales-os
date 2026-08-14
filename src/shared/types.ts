@@ -45,7 +45,31 @@ export interface AppRuntimeState {
   openPluginIds: string[];
 }
 
-export type MacroStepType = 'click' | 'input' | 'navigate' | 'wait';
+export type MacroStepType = 'click' | 'input' | 'navigate' | 'wait' | 'extract';
+export type MacroExecutionType = 'actions' | 'collect' | 'hybrid';
+export type MacroInputType = 'text' | 'number' | 'boolean';
+export type MacroOutputType = 'none' | 'summary' | 'json' | 'table' | 'tabs';
+
+export interface MacroInputDefinition {
+  id: string;
+  key: string;
+  label: string;
+  type: MacroInputType;
+  required: boolean;
+  defaultValue?: string | number | boolean;
+}
+
+export interface MacroOutputDefinition {
+  type: MacroOutputType;
+  title: string;
+}
+
+export interface MacroSuccessCriteria {
+  requireAllSteps: boolean;
+  requireOutput: boolean;
+  minimumProcessed: number;
+  maximumFailures: number;
+}
 
 export interface MacroStep {
   id: string;
@@ -55,6 +79,9 @@ export interface MacroStep {
   value?: string;
   url?: string;
   durationMs?: number;
+  outputKey?: string;
+  attribute?: string;
+  multiple?: boolean;
 }
 
 export interface MacroDefinition {
@@ -62,9 +89,26 @@ export interface MacroDefinition {
   name: string;
   description: string;
   pluginId: string;
+  executionType: MacroExecutionType;
+  inputs: MacroInputDefinition[];
+  output: MacroOutputDefinition;
+  successCriteria: MacroSuccessCriteria;
   createdAt: string;
   updatedAt: string;
   steps: MacroStep[];
+}
+
+export type MacroInputValues = Record<string, string | number | boolean>;
+
+export interface MacroRunResult {
+  macroId: string;
+  status: 'success' | 'partial' | 'failed' | 'cancelled';
+  startedAt: string;
+  finishedAt: string;
+  processed: number;
+  failed: number;
+  outputs: Record<string, unknown>;
+  message: string;
 }
 
 export interface MacroRuntimeEvent {
@@ -74,6 +118,7 @@ export interface MacroRuntimeEvent {
   step?: MacroStep;
   stepIndex?: number;
   message?: string;
+  result?: MacroRunResult;
 }
 
 export interface WorkspaceState {
@@ -110,7 +155,7 @@ export interface SalesOSApi {
   deleteMacro: (macroId: string) => Promise<MacroDefinition[]>;
   startMacroRecording: (pluginId: string) => Promise<void>;
   stopMacroRecording: () => Promise<MacroStep[]>;
-  runMacro: (macroId: string) => Promise<void>;
+  runMacro: (macroId: string, inputs: MacroInputValues) => Promise<MacroRunResult>;
   cancelMacro: () => Promise<void>;
   onAppState: (callback: (state: AppRuntimeState) => void) => () => void;
   onMacroEvent: (callback: (event: MacroRuntimeEvent) => void) => () => void;

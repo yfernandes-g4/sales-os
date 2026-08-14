@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, WebContents } from 'electron';
-import type { MacroDefinition, MacroRuntimeEvent, MacroStep } from '../shared/types';
+import type { MacroDefinition, MacroInputValues, MacroRunResult, MacroRuntimeEvent, MacroStep } from '../shared/types';
 import { AppViewManager } from './appViewManager';
 
 const RECORDING_PREFIX = '__SALES_OS_MACRO__';
@@ -46,27 +46,49 @@ export class MacroEngine {
     return steps;
   }
 
-  async run(macro: MacroDefinition): Promise<void> {
+  async run(macro: MacroDefinition, inputs: MacroInputValues = {}): Promise<MacroRunResult> {
     const contents = this.views.getActiveWebContents();
     if (!contents || this.views.getActivePluginId() !== macro.pluginId) throw new Error('Não foi possível ativar o aplicativo da macro.');
+    const startedAt = new Date().toISOString();
+    const outputs: Record<string, unknown> = {};
+    let processed = 0;
+    let failed = 0;
     this.cancelled = false;
     this.emit({ type: 'run-started', macroId: macro.id, pluginId: macro.pluginId });
-    try {
-      for (let index = 0; index < macro.steps.length; index += 1) {
-        if (this.cancelled) {
-          this.emit({ type: 'run-cancelled', macroId: macro.id, stepIndex: index });
-          return;
-        }
-        const step = macro.steps[index];
-        this.emit({ type: 'run-step', macroId: macro.id, step, stepIndex: index });
-        await this.executeStep(contents, step);
+
+    for (let index = 0; index < macro.steps.length; index += 1) {
+      if (this.cancelled) {
+        const result = this.result(macro.id, 'cancelled', startedAt, processed, failed, outputs, 'Execução cancelada.');
+        this.emit({ type: 'run-cancelled', macroId: macro.id, stepIndex: index, result });
+        return result;
       }
-      this.emit({ type: 'run-completed', macroId: macro.id, message: 'Macro concluída' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Falha desconhecida';
-      this.emit({ type: 'run-failed', macroId: macro.id, message });
-      throw error;
+      const rawStep = macro.steps[index];
+      const step = this.interpolateStep(rawStep, inputs, outputs);
+      this.emit({ type: 'run-step', macroId: macro.id, step, stepIndex: index });
+      try {
+        const extracted = await this.executeStep(contents, step);
+        if (extracted && step.outputKey) outputs[step.outputKey] = extracted;
+        processed += 1;
+      } catch (error) {
+        failed += 1;
+        if (macro.successCriteria?.requireAllSteps ?? true) {
+          const message = error instanceof Error ? error.message : 'Falha desconhecida';
+          const result = this.result(macro.id, 'failed', startedAt, processed, failed, outputs, message);
+          this.emit({ type: 'run-failed', macroId: macro.id, message, result });
+          throw error;
+        }
+      }
     }
+
+    if (macro.output?.type === 'tabs') outputs.tabs = this.views.getTabsSnapshot()[macro.pluginId]?.tabs ?? [];
+    const criteria = macro.successCriteria ?? { requireAllSteps: true, requireOutput: false, minimumProcessed: 0, maximumFailures: 0 };
+    const outputCount = Object.keys(outputs).length;
+    const success = processed >= criteria.minimumProcessed && failed <= criteria.maximumFailures && (!criteria.requireOutput || outputCount > 0);
+    const status: MacroRunResult['status'] = success ? (failed ? 'partial' : 'success') : 'failed';
+    const message = success ? `Macro concluída: ${processed} etapas processadas.` : 'A execução não atingiu os critérios de sucesso.';
+    const result = this.result(macro.id, status, startedAt, processed, failed, outputs, message);
+    this.emit({ type: status === 'failed' ? 'run-failed' : 'run-completed', macroId: macro.id, message, result });
+    return result;
   }
 
   cancel(): void { this.cancelled = true; }
@@ -85,17 +107,34 @@ export class MacroEngine {
     } catch { /* Ignore page console noise. */ }
   };
 
-  private async executeStep(contents: WebContents, step: MacroStep): Promise<void> {
+  private async executeStep(contents: WebContents, step: MacroStep): Promise<unknown> {
     if (step.type === 'wait') {
       await this.delay(Math.max(0, Math.min(step.durationMs ?? 500, 30_000)));
-      return;
+      return undefined;
     }
     if (step.type === 'navigate' && step.url) {
       await contents.loadURL(step.url);
       await this.delay(700);
-      return;
+      return undefined;
     }
     if (!step.selector) throw new Error(`A etapa “${step.label}” não possui seletor.`);
+    if (step.type === 'extract') {
+      const extracted = await contents.executeJavaScript(`(() => {
+        const elements = [...document.querySelectorAll(${JSON.stringify(step.selector)})];
+        if (!elements.length) return { ok:false, reason:'Nenhum elemento encontrado: ${step.selector.replace(/'/g, "\\'")}' };
+        const read = (element) => {
+          const attribute = ${JSON.stringify(step.attribute ?? 'text')};
+          if (attribute === 'text') return (element.textContent || '').trim();
+          if (attribute === 'value') return element.value ?? '';
+          if (attribute === 'href') return element.href ?? element.getAttribute('href');
+          return element.getAttribute(attribute);
+        };
+        const values = elements.map(read);
+        return { ok:true, value:${Boolean(step.multiple)} ? values : values[0] };
+      })()`, true) as { ok: boolean; value?: unknown; reason?: string };
+      if (!extracted.ok) throw new Error(extracted.reason ?? `Falha em ${step.label}`);
+      return extracted.value;
+    }
     const result = await contents.executeJavaScript(`(() => {
       const element = document.querySelector(${JSON.stringify(step.selector)});
       if (!element) return { ok: false, reason: 'Elemento não encontrado: ${step.selector.replace(/'/g, "\\'")}' };
@@ -116,6 +155,7 @@ export class MacroEngine {
     })()`, true) as { ok: boolean; reason?: string };
     if (!result.ok) throw new Error(result.reason ?? `Falha em ${step.label}`);
     await this.delay(step.type === 'click' ? 650 : 150);
+    return undefined;
   }
 
   private recorderScript(): string {
@@ -158,6 +198,19 @@ export class MacroEngine {
       window.__salesOSMacroRecorder = { stop() { document.removeEventListener('click', onClick, true); document.removeEventListener('change', onChange, true); delete window.__salesOSMacroRecorder; } };
       return true;
     })()`;
+  }
+
+  private interpolateStep(step: MacroStep, inputs: MacroInputValues, outputs: Record<string, unknown>): MacroStep {
+    const replace = (value?: string) => value?.replace(/\{\{\s*(input|output)\.([\w-]+)\s*\}\}/g, (_match, scope: string, key: string) => {
+      const source = scope === 'input' ? inputs : outputs;
+      const resolved = source[key];
+      return resolved === undefined || resolved === null ? '' : String(resolved);
+    });
+    return { ...step, label: replace(step.label) ?? step.label, selector: replace(step.selector), value: replace(step.value), url: replace(step.url) };
+  }
+
+  private result(macroId: string, status: MacroRunResult['status'], startedAt: string, processed: number, failed: number, outputs: Record<string, unknown>, message: string): MacroRunResult {
+    return { macroId, status, startedAt, finishedAt: new Date().toISOString(), processed, failed, outputs, message };
   }
 
   private step(input: Omit<MacroStep, 'id'>): MacroStep { return { ...input, id: randomUUID() }; }
