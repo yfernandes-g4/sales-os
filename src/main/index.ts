@@ -166,6 +166,9 @@ function registerIpc(): void {
     ...state, macros: state.macros.filter((macro) => macro.id !== macroId),
   })).macros);
   ipcMain.handle('macro:record-start', async (_event, pluginId: string) => macroEngine?.startRecording(pluginId));
+  ipcMain.handle('macro:record-pause', async () => macroEngine?.pauseRecording());
+  ipcMain.handle('macro:record-resume', async () => macroEngine?.resumeRecording());
+  ipcMain.handle('macro:record-extract', async () => macroEngine?.armExtraction());
   ipcMain.handle('macro:record-stop', async () => macroEngine?.stopRecording() ?? []);
   ipcMain.handle('macro:run', async (_event, macroId: string, inputs: MacroInputValues = {}) => {
     const stored = store.get().macros.find((item) => item.id === macroId);

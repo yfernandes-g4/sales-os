@@ -11,6 +11,8 @@ export class MacroEngine {
   private recordingPluginId: string | null = null;
   private recordedSteps: MacroStep[] = [];
   private recordingContents: WebContents | null = null;
+  private recordingPaused = false;
+  private extractionArmed = false;
   private cancelled = false;
 
   constructor(private readonly window: BrowserWindow, private readonly views: AppViewManager) {}
@@ -20,6 +22,8 @@ export class MacroEngine {
     const contents = this.views.getActiveWebContents();
     if (!contents || this.views.getActivePluginId() !== pluginId) throw new Error('Abra o aplicativo antes de iniciar a gravação.');
     this.recordingPluginId = pluginId;
+    this.recordingPaused = false;
+    this.extractionArmed = false;
     this.recordedSteps = [];
     this.recordingContents = contents;
     const url = contents.getURL();
@@ -29,6 +33,29 @@ export class MacroEngine {
     await contents.debugger.sendCommand('Runtime.enable');
     await contents.executeJavaScript(this.recorderScript(), true);
     this.emit({ type: 'recording-started', pluginId });
+  }
+
+  async pauseRecording(): Promise<void> {
+    if (!this.recordingContents || !this.recordingPluginId) throw new Error('Nenhuma gravação ativa.');
+    this.recordingPaused = true;
+    this.extractionArmed = false;
+    await this.recordingContents.executeJavaScript('window.__salesOSMacroRecorder?.pause?.()', true);
+    this.emit({ type: 'recording-paused', pluginId: this.recordingPluginId });
+  }
+
+  async resumeRecording(): Promise<void> {
+    if (!this.recordingContents || !this.recordingPluginId) throw new Error('Nenhuma gravação ativa.');
+    this.recordingPaused = false;
+    await this.recordingContents.executeJavaScript('window.__salesOSMacroRecorder?.resume?.()', true);
+    this.emit({ type: 'recording-resumed', pluginId: this.recordingPluginId });
+  }
+
+  async armExtraction(): Promise<void> {
+    if (!this.recordingContents || !this.recordingPluginId) throw new Error('Nenhuma gravação ativa.');
+    if (this.recordingPaused) await this.resumeRecording();
+    this.extractionArmed = true;
+    await this.recordingContents.executeJavaScript('window.__salesOSMacroRecorder?.armExtract?.()', true);
+    this.emit({ type: 'recording-extract-armed', pluginId: this.recordingPluginId, message: 'Clique no dado que deseja capturar.' });
   }
 
   async stopRecording(): Promise<MacroStep[]> {
@@ -41,6 +68,8 @@ export class MacroEngine {
     const pluginId = this.recordingPluginId ?? undefined;
     this.recordingPluginId = null;
     this.recordingContents = null;
+    this.recordingPaused = false;
+    this.extractionArmed = false;
     this.recordedSteps = [];
     this.emit({ type: 'recording-stopped', pluginId, message: `${steps.length} etapas gravadas` });
     return steps;
@@ -100,6 +129,7 @@ export class MacroEngine {
     try {
       const data = JSON.parse(message.slice(RECORDING_PREFIX.length)) as Omit<MacroStep, 'id'>;
       const step = this.step(data);
+      if (step.type === 'extract') this.extractionArmed = false;
       const previous = this.recordedSteps.at(-1);
       if (step.type === 'input' && previous?.type === 'input' && previous.selector === step.selector) this.recordedSteps[this.recordedSteps.length - 1] = step;
       else this.recordedSteps.push(step);
@@ -162,6 +192,7 @@ export class MacroEngine {
     return `(() => {
       window.__salesOSMacroRecorder?.stop?.();
       const PREFIX = ${JSON.stringify(RECORDING_PREFIX)};
+      let paused = false; let extractMode = false; let highlighted = null;
       const sensitive = (el) => el.type === 'password' || /password|passwd|token|secret|otp|one.?time/i.test([el.name, el.id, el.autocomplete, el.getAttribute('aria-label')].filter(Boolean).join(' '));
       const esc = (value) => CSS.escape(String(value));
       const selector = (el) => {
@@ -182,20 +213,38 @@ export class MacroEngine {
         return parts.join(' > ');
       };
       const label = (el) => (el.getAttribute('aria-label') || el.title || el.innerText || el.placeholder || el.name || el.tagName).trim().replace(/\\s+/g,' ').slice(0,80);
+      const key = (value) => value.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,40) || 'dado';
       const send = (payload) => console.info(PREFIX + JSON.stringify(payload));
+      const style = document.createElement('style'); style.id='sales-os-recorder-style'; style.textContent='html.sales-os-extract-mode *{cursor:crosshair!important} [data-sales-os-extract-target]{outline:3px solid #B9915B!important;outline-offset:2px!important;background-color:#B9915B18!important}'; document.documentElement.appendChild(style);
+      const clearHighlight = () => { highlighted?.removeAttribute?.('data-sales-os-extract-target'); highlighted=null; };
+      const disarm = () => { extractMode=false; clearHighlight(); document.documentElement.classList.remove('sales-os-extract-mode'); };
+      const onMove = (event) => { if (!extractMode || paused) return; clearHighlight(); highlighted=event.target; highlighted?.setAttribute?.('data-sales-os-extract-target',''); };
       const onClick = (event) => {
+        if (paused) return;
+        if (extractMode) {
+          event.preventDefault(); event.stopImmediatePropagation();
+          const el=event.target; const name=label(el); const attribute=el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement ? 'value' : el.closest?.('a') ? 'href' : 'text';
+          send({ type:'extract', label:'Extrair ' + name, selector:selector(el), outputKey:key(name), attribute, multiple:false }); disarm(); return;
+        }
         const el = event.target?.closest?.('button,a,[role=button],input[type=button],input[type=submit]');
         if (!el) return;
         send({ type:'click', label:'Clicar em ' + label(el), selector:selector(el) });
       };
       const onChange = (event) => {
+        if (paused || extractMode) return;
         const el = event.target;
         if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) || sensitive(el)) return;
         send({ type:'input', label:'Preencher ' + label(el), selector:selector(el), value:el.value });
       };
+      document.addEventListener('mousemove', onMove, true);
       document.addEventListener('click', onClick, true);
       document.addEventListener('change', onChange, true);
-      window.__salesOSMacroRecorder = { stop() { document.removeEventListener('click', onClick, true); document.removeEventListener('change', onChange, true); delete window.__salesOSMacroRecorder; } };
+      window.__salesOSMacroRecorder = {
+        pause() { paused=true; disarm(); },
+        resume() { paused=false; },
+        armExtract() { paused=false; extractMode=true; document.documentElement.classList.add('sales-os-extract-mode'); },
+        stop() { disarm(); document.removeEventListener('mousemove', onMove, true); document.removeEventListener('click', onClick, true); document.removeEventListener('change', onChange, true); style.remove(); delete window.__salesOSMacroRecorder; }
+      };
       return true;
     })()`;
   }

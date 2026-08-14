@@ -112,7 +112,7 @@ export interface MacroRunResult {
 }
 
 export interface MacroRuntimeEvent {
-  type: 'recording-started' | 'recording-step' | 'recording-stopped' | 'run-started' | 'run-step' | 'run-completed' | 'run-failed' | 'run-cancelled';
+  type: 'recording-started' | 'recording-paused' | 'recording-resumed' | 'recording-extract-armed' | 'recording-step' | 'recording-stopped' | 'run-started' | 'run-step' | 'run-completed' | 'run-failed' | 'run-cancelled';
   macroId?: string;
   pluginId?: string;
   step?: MacroStep;
@@ -154,6 +154,9 @@ export interface SalesOSApi {
   saveMacro: (macro: MacroDefinition) => Promise<MacroDefinition[]>;
   deleteMacro: (macroId: string) => Promise<MacroDefinition[]>;
   startMacroRecording: (pluginId: string) => Promise<void>;
+  pauseMacroRecording: () => Promise<void>;
+  resumeMacroRecording: () => Promise<void>;
+  armMacroExtraction: () => Promise<void>;
   stopMacroRecording: () => Promise<MacroStep[]>;
   runMacro: (macroId: string, inputs: MacroInputValues) => Promise<MacroRunResult>;
   cancelMacro: () => Promise<void>;

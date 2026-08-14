@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, ArrowRight, Blocks, ChevronRight, CircleUserRound, Download, Home,
   LayoutGrid, LoaderCircle, Plus, RefreshCw, Search, Settings, ShieldCheck, Star,
-  Store, Upload, WandSparkles, Square, X,
+  Store, Upload, WandSparkles, Square, Pause, Play, Crosshair, X,
 } from 'lucide-react';
 import type { MacroStep, OpenApp, PluginCategory, PluginManifest, WorkspaceState } from '../shared/types';
 import MacroStudio from './components/MacroStudio';
@@ -60,6 +60,8 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [notice, setNotice] = useState('');
   const [recordingPluginId, setRecordingPluginId] = useState<string | null>(null);
+  const [recordingPaused, setRecordingPaused] = useState(false);
+  const [extractionArmed, setExtractionArmed] = useState(false);
   const [recordedSteps, setRecordedSteps] = useState<MacroStep[] | null>(null);
   const [macroRunning, setMacroRunning] = useState(false);
 
@@ -76,8 +78,12 @@ export default function App() {
       setOpenPluginIds(runtime.openPluginIds);
     });
     const removeMacroListener = window.salesOS.onMacroEvent((event) => {
-      if (event.type === 'recording-started') setRecordingPluginId(event.pluginId ?? null);
-      if (event.type === 'recording-stopped') setRecordingPluginId(null);
+      if (event.type === 'recording-started') { setRecordingPluginId(event.pluginId ?? null); setRecordingPaused(false); setExtractionArmed(false); }
+      if (event.type === 'recording-paused') { setRecordingPaused(true); setExtractionArmed(false); }
+      if (event.type === 'recording-resumed') setRecordingPaused(false);
+      if (event.type === 'recording-extract-armed') { setRecordingPaused(false); setExtractionArmed(true); }
+      if (event.type === 'recording-step' && event.step?.type === 'extract') setExtractionArmed(false);
+      if (event.type === 'recording-stopped') { setRecordingPluginId(null); setRecordingPaused(false); setExtractionArmed(false); }
       if (event.type === 'run-started') setMacroRunning(true);
       if (['run-completed', 'run-failed', 'run-cancelled'].includes(event.type)) setMacroRunning(false);
     });
@@ -111,7 +117,14 @@ export default function App() {
     await open(pluginId);
     await window.salesOS.startMacroRecording(pluginId);
     setRecordingPluginId(pluginId);
+    setRecordingPaused(false);
+    setExtractionArmed(false);
   };
+  const toggleMacroPause = async () => {
+    if (recordingPaused) await window.salesOS.resumeMacroRecording();
+    else await window.salesOS.pauseMacroRecording();
+  };
+  const armExtraction = async () => { await window.salesOS.armMacroExtraction(); };
   const stopMacroRecording = async () => {
     const steps = await window.salesOS.stopMacroRecording();
     setRecordingPluginId(null);
@@ -177,7 +190,7 @@ export default function App() {
               <div className="address-bar">
                 <ShieldCheck size={15} /><span>{openApp.url}</span>
               </div>
-              {recordingPluginId && <button className="recording-stop" onClick={() => void stopMacroRecording()}><Square size={14} fill="currentColor" /> Parar gravação</button>}
+              {recordingPluginId && <div className="recorder-toolbar"><span className={`recorder-status ${recordingPaused ? 'paused' : ''}`}><i></i>{recordingPaused ? 'Pausada' : extractionArmed ? 'Selecione um dado' : 'Gravando'}</span><button className="recorder-control" onClick={() => void toggleMacroPause()}>{recordingPaused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}{recordingPaused ? 'Continuar' : 'Pausar'}</button><button className={`recorder-control extract ${extractionArmed ? 'active' : ''}`} onClick={() => void armExtraction()}><Crosshair size={14} /> Capturar dado</button><button className="recording-stop" onClick={() => void stopMacroRecording()}><Square size={14} fill="currentColor" /> Finalizar</button></div>}
               {macroRunning && <button className="recording-stop" onClick={() => void window.salesOS.cancelMacro()}><Square size={14} fill="currentColor" /> Cancelar macro</button>}
               <button className="close-app" onClick={() => void hideApp()}><LayoutGrid size={18} /> Workspace</button>
             </div>

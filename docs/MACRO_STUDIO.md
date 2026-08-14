@@ -6,6 +6,9 @@ O Macro Studio grava e reproduz interações dentro dos plugins web do Sales OS.
 
 - gravação de cliques em botões e links;
 - gravação de alterações em inputs, textareas e selects;
+- pausa e retomada da gravação sem perder as etapas anteriores;
+- modo visual **Capturar dado**, que destaca o elemento sob o cursor e transforma o próximo clique em etapa de extração sem executar a ação da página;
+- sugestão automática de chave de output para o dado selecionado;
 - etapa inicial de navegação;
 - editor para nome, descrição, aplicativo, rótulos, seletores e esperas;
 - tipos de execução: ações, coleta ou híbrida;
@@ -20,7 +23,7 @@ O Macro Studio grava e reproduz interações dentro dos plugins web do Sales OS.
 
 ## Segurança
 
-Campos com `type=password` e elementos identificados como password, token, secret, OTP ou one-time code são ignorados. O gravador não persiste cookies nem credenciais da sessão. Macros ficam limitadas ao aplicativo em que foram criadas.
+Campos com `type=password` e elementos identificados como password, token, secret, OTP ou one-time code são ignorados. Enquanto a gravação está pausada, nenhuma interação é registrada. No modo de captura, o clique é interceptado para evitar navegação ou alteração acidental. O gravador não persiste cookies nem credenciais da sessão. Macros ficam limitadas ao aplicativo em que foram criadas.
 
 ## Seletores
 
