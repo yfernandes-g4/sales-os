@@ -115,6 +115,12 @@ export class AppViewManager {
     } else this.changed();
   }
 
+  closeAll(): void {
+    for (const pluginId of [...this.apps.keys()]) this.close(pluginId);
+    this.activePluginId = null;
+    this.changed();
+  }
+
   navigate(action: 'back' | 'forward' | 'reload' | 'home'): void {
     const current = this.getActiveTab();
     if (!current) return;

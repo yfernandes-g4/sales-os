@@ -12,6 +12,28 @@ const defaults: WorkspaceState = {
   appTabs: {},
   disabledPluginIds: [],
   customPlugins: [],
+  rolePolicies: {
+    administrator: {
+      role: 'administrator', label: 'Administrador', description: 'Acesso total aos aplicativos e ao painel de controle.',
+      visiblePluginIds: ['gmail', 'calendar', 'notion', 'hubspot', 'salesforce', 'looker', 'plataforma-comercial', 'performance-comercial', 'enablement-comercial'],
+      defaultInstalledPluginIds: ['gmail', 'calendar', 'notion', 'hubspot', 'salesforce', 'looker', 'plataforma-comercial', 'performance-comercial', 'enablement-comercial'],
+    },
+    sdr: {
+      role: 'sdr', label: 'SDR', description: 'Ferramentas essenciais para prospecção e gestão de leads.',
+      visiblePluginIds: ['hubspot', 'salesforce', 'plataforma-comercial'],
+      defaultInstalledPluginIds: ['hubspot', 'plataforma-comercial'],
+    },
+    coordinator: {
+      role: 'coordinator', label: 'Coordenador', description: 'Produtividade, indicadores e enablement da operação.',
+      visiblePluginIds: ['gmail', 'calendar', 'notion', 'looker', 'performance-comercial', 'enablement-comercial'],
+      defaultInstalledPluginIds: ['gmail', 'calendar', 'performance-comercial'],
+    },
+  },
+  installedByRole: {
+    administrator: ['gmail', 'calendar', 'notion', 'hubspot', 'salesforce', 'looker', 'plataforma-comercial', 'performance-comercial', 'enablement-comercial'],
+    sdr: ['hubspot', 'plataforma-comercial'],
+    coordinator: ['gmail', 'calendar', 'performance-comercial'],
+  },
 };
 
 export class WorkspaceStore {

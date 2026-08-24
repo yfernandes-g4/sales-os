@@ -4,8 +4,11 @@ Aplicativo desktop baseado em Electron/Chromium para centralizar as ferramentas 
 
 ## Funcionalidades
 
+- login simulado com perfis Administrador, SDR e Coordenador;
+- controle de acesso por cargo, aplicado também no processo principal;
+- painel administrativo para definir aplicativos disponíveis e pré-instalados;
 - home operacional com favoritos e acessos recentes;
-- catálogo corporativo de aplicações;
+- catálogo corporativo filtrado pelas políticas do usuário;
 - instalação, remoção, favoritos e habilitação local;
 - execução de aplicações web em `WebContentsView` isolado;
 - múltiplos aplicativos mantidos vivos em segundo plano, acessíveis pela barra lateral;
@@ -67,5 +70,6 @@ Não há backend, SSO próprio, assinatura de plugins, telemetria central ou con
 ## Documentação
 
 - [Arquitetura](docs/ARCHITECTURE.md)
+- [Controle de acesso](docs/ACCESS_CONTROL.md)
 - [Manifesto de plugins](docs/PLUGIN_MANIFEST.md)
 - [Roadmap](docs/ROADMAP.md)

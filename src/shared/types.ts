@@ -1,4 +1,27 @@
 export type PluginCategory = 'Produtividade' | 'CRM' | 'Comunicação' | 'Dados' | 'Interno';
+export type UserRole = 'administrator' | 'sdr' | 'coordinator';
+
+export interface SimulatedUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  roleLabel: string;
+  initials: string;
+}
+
+export interface AccessSession {
+  user: SimulatedUser;
+  signedInAt: string;
+}
+
+export interface RolePolicy {
+  role: UserRole;
+  label: string;
+  description: string;
+  visiblePluginIds: string[];
+  defaultInstalledPluginIds: string[];
+}
 
 export interface PluginManifest {
   id: string;
@@ -54,11 +77,19 @@ export interface WorkspaceState {
   appTabs: Record<string, PersistedAppTabs>;
   disabledPluginIds: string[];
   customPlugins: PluginManifest[];
+  rolePolicies: Record<UserRole, RolePolicy>;
+  installedByRole: Record<UserRole, string[]>;
 }
 
 export interface SalesOSApi {
   catalog: () => Promise<PluginManifest[]>;
   state: () => Promise<WorkspaceState>;
+  users: () => Promise<SimulatedUser[]>;
+  session: () => Promise<AccessSession | null>;
+  login: (userId: string) => Promise<AccessSession>;
+  logout: () => Promise<void>;
+  rolePolicies: () => Promise<RolePolicy[]>;
+  updateRolePolicy: (policy: RolePolicy) => Promise<RolePolicy[]>;
   install: (pluginId: string) => Promise<WorkspaceState>;
   uninstall: (pluginId: string) => Promise<WorkspaceState>;
   toggleFavorite: (pluginId: string) => Promise<WorkspaceState>;

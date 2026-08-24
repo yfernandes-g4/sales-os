@@ -1,14 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, ipcMain, Menu } from 'electron';
-import type { PersistedAppTabs, PluginManifest, WorkspaceState } from '../shared/types';
+import type { AccessSession, PersistedAppTabs, PluginManifest, RolePolicy, SimulatedUser, UserRole, WorkspaceState } from '../shared/types';
 import { AppViewManager } from './appViewManager';
 import { loadCatalog, WorkspaceStore } from './store';
 
 let mainWindow: BrowserWindow | null = null;
 let viewManager: AppViewManager | null = null;
 let store: WorkspaceStore;
+let activeSession: AccessSession | null = null;
 let restoringRuntime = false;
+
+const SIMULATED_USERS: SimulatedUser[] = [
+  { id: 'user-admin', name: 'Yago Fernandes', email: 'yago.admin@g4.com', role: 'administrator', roleLabel: 'Administrador', initials: 'YF' },
+  { id: 'user-sdr', name: 'Ana SDR', email: 'ana.sdr@g4.com', role: 'sdr', roleLabel: 'SDR', initials: 'AS' },
+  { id: 'user-coordinator', name: 'Carlos Coordenador', email: 'carlos.coordenador@g4.com', role: 'coordinator', roleLabel: 'Coordenador', initials: 'CC' },
+];
 let runtimePersistTimer: NodeJS.Timeout | null = null;
 
 function persistRuntime(appTabs: Record<string, PersistedAppTabs>, activePluginId: string | null): void {
@@ -30,6 +37,34 @@ function unique(items: string[]): string[] {
 
 function catalog(): PluginManifest[] {
   return loadCatalog(store.get().customPlugins);
+}
+
+function requireSession(): AccessSession {
+  if (!activeSession) throw new Error('Faça login para continuar.');
+  return activeSession;
+}
+
+function policyFor(role: UserRole, state = store.get()): RolePolicy {
+  return state.rolePolicies[role];
+}
+
+function allowedCatalog(): PluginManifest[] {
+  const session = requireSession();
+  const allowed = new Set(policyFor(session.user.role).visiblePluginIds);
+  return catalog().filter((plugin) => allowed.has(plugin.id));
+}
+
+function scopedState(state = store.get()): WorkspaceState {
+  if (!activeSession) return { ...state, installedPluginIds: [] };
+  const role = activeSession.user.role;
+  const policy = policyFor(role, state);
+  const installed = unique([...(state.installedByRole[role] ?? []), ...policy.defaultInstalledPluginIds])
+    .filter((id) => policy.visiblePluginIds.includes(id));
+  return { ...state, installedPluginIds: installed };
+}
+
+function updateRoleInstalled(role: UserRole, installedPluginIds: string[]): WorkspaceState {
+  return mutate((state) => ({ ...state, installedByRole: { ...state.installedByRole, [role]: unique(installedPluginIds) } }));
 }
 
 function ensurePlugin(input: PluginManifest): PluginManifest {
@@ -54,36 +89,78 @@ function mutate(fn: (state: WorkspaceState) => WorkspaceState): WorkspaceState {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('catalog:list', () => catalog());
-  ipcMain.handle('workspace:get', () => store.get());
-  ipcMain.handle('workspace:install', (_event, pluginId: string) => mutate((state) => ({
-    ...state,
-    installedPluginIds: unique([...state.installedPluginIds, pluginId]),
-    disabledPluginIds: state.disabledPluginIds.filter((id) => id !== pluginId),
-  })));
+  ipcMain.handle('auth:users', () => SIMULATED_USERS);
+  ipcMain.handle('auth:session', () => activeSession);
+  ipcMain.handle('auth:login', (_event, userId: string) => {
+    const user = SIMULATED_USERS.find((item) => item.id === userId);
+    if (!user) throw new Error('Usuário inválido.');
+    viewManager?.closeAll();
+    activeSession = { user, signedInAt: new Date().toISOString() };
+    const state = store.get();
+    const policy = policyFor(user.role, state);
+    updateRoleInstalled(user.role, unique([...(state.installedByRole[user.role] ?? []), ...policy.defaultInstalledPluginIds]));
+    return activeSession;
+  });
+  ipcMain.handle('auth:logout', () => { viewManager?.closeAll(); activeSession = null; });
+  ipcMain.handle('access:policies', () => {
+    const session = requireSession();
+    if (session.user.role !== 'administrator') throw new Error('Acesso restrito ao administrador.');
+    return Object.values(store.get().rolePolicies);
+  });
+  ipcMain.handle('access:update-policy', (_event, input: RolePolicy) => {
+    const session = requireSession();
+    if (session.user.role !== 'administrator') throw new Error('Acesso restrito ao administrador.');
+    const validIds = new Set(catalog().map((plugin) => plugin.id));
+    const policy: RolePolicy = {
+      ...input,
+      visiblePluginIds: unique(input.visiblePluginIds).filter((id) => validIds.has(id)),
+      defaultInstalledPluginIds: unique(input.defaultInstalledPluginIds).filter((id) => validIds.has(id) && input.visiblePluginIds.includes(id)),
+    };
+    mutate((state) => ({ ...state, rolePolicies: { ...state.rolePolicies, [policy.role]: policy } }));
+    return Object.values(store.get().rolePolicies);
+  });
+  ipcMain.handle('catalog:list', () => activeSession ? allowedCatalog() : []);
+  ipcMain.handle('workspace:get', () => scopedState());
+  ipcMain.handle('workspace:install', (_event, pluginId: string) => {
+    const session = requireSession();
+    const state = scopedState();
+    if (!policyFor(session.user.role).visiblePluginIds.includes(pluginId)) throw new Error('Aplicativo não autorizado para este cargo.');
+    updateRoleInstalled(session.user.role, unique([...state.installedPluginIds, pluginId]));
+    mutate((current) => ({ ...current, disabledPluginIds: current.disabledPluginIds.filter((id) => id !== pluginId) }));
+    return scopedState();
+  });
   ipcMain.handle('workspace:uninstall', (_event, pluginId: string) => {
+    const session = requireSession();
     viewManager?.close(pluginId);
     const activePluginId = viewManager?.getActivePluginId() ?? null;
-    return mutate((state) => ({
-      ...state,
-      installedPluginIds: state.installedPluginIds.filter((id) => id !== pluginId),
-      favoritePluginIds: state.favoritePluginIds.filter((id) => id !== pluginId),
-      openPluginIds: state.openPluginIds.filter((id) => id !== pluginId),
-      lastActivePluginId: state.lastActivePluginId === pluginId ? activePluginId : state.lastActivePluginId,
-      appTabs: Object.fromEntries(Object.entries(state.appTabs).filter(([id]) => id !== pluginId)),
+    const state = scopedState();
+    updateRoleInstalled(session.user.role, state.installedPluginIds.filter((id) => id !== pluginId));
+    mutate((current) => ({
+      ...current,
+      favoritePluginIds: current.favoritePluginIds.filter((id) => id !== pluginId),
+      openPluginIds: current.openPluginIds.filter((id) => id !== pluginId),
+      lastActivePluginId: current.lastActivePluginId === pluginId ? activePluginId : current.lastActivePluginId,
+      appTabs: Object.fromEntries(Object.entries(current.appTabs).filter(([id]) => id !== pluginId)),
     }));
+    return scopedState();
   });
-  ipcMain.handle('workspace:favorite', (_event, pluginId: string) => mutate((state) => ({
-    ...state,
-    favoritePluginIds: state.favoritePluginIds.includes(pluginId)
-      ? state.favoritePluginIds.filter((id) => id !== pluginId)
-      : unique([...state.favoritePluginIds, pluginId]),
-  })));
+  ipcMain.handle('workspace:favorite', (_event, pluginId: string) => {
+    requireSession();
+    mutate((state) => ({
+      ...state,
+      favoritePluginIds: state.favoritePluginIds.includes(pluginId)
+        ? state.favoritePluginIds.filter((id) => id !== pluginId)
+        : unique([...state.favoritePluginIds, pluginId]),
+    }));
+    return scopedState();
+  });
   ipcMain.handle('workspace:enabled', (_event, pluginId: string) => {
+    const session = requireSession();
+    if (session.user.role !== 'administrator') throw new Error('Acesso restrito ao administrador.');
     const current = store.get();
     const disabling = !current.disabledPluginIds.includes(pluginId);
     if (disabling) viewManager?.close(pluginId);
-    return mutate((state) => ({
+    mutate((state) => ({
       ...state,
       disabledPluginIds: disabling
         ? unique([...state.disabledPluginIds, pluginId])
@@ -92,21 +169,29 @@ function registerIpc(): void {
       lastActivePluginId: disabling && state.lastActivePluginId === pluginId ? viewManager?.getActivePluginId() ?? null : state.lastActivePluginId,
       appTabs: disabling ? Object.fromEntries(Object.entries(state.appTabs).filter(([id]) => id !== pluginId)) : state.appTabs,
     }));
+    return scopedState();
   });
   ipcMain.handle('catalog:add', (_event, input: PluginManifest) => {
+    const session = requireSession();
+    if (session.user.role !== 'administrator') throw new Error('Acesso restrito ao administrador.');
     const plugin = ensurePlugin(input);
-    mutate((state) => ({
-      ...state,
-      customPlugins: [...state.customPlugins, plugin],
-      installedPluginIds: unique([...state.installedPluginIds, plugin.id]),
-    }));
-    return catalog();
+    mutate((state) => {
+      const adminPolicy = state.rolePolicies.administrator;
+      return {
+        ...state,
+        customPlugins: [...state.customPlugins, plugin],
+        rolePolicies: { ...state.rolePolicies, administrator: { ...adminPolicy, visiblePluginIds: unique([...adminPolicy.visiblePluginIds, plugin.id]) } },
+        installedByRole: { ...state.installedByRole, administrator: unique([...state.installedByRole.administrator, plugin.id]) },
+      };
+    });
+    return allowedCatalog();
   });
-  ipcMain.handle('workspace:export', () => store.exportConfig());
-  ipcMain.handle('workspace:import', () => store.importConfig());
+  ipcMain.handle('workspace:export', () => { if (requireSession().user.role !== 'administrator') throw new Error('Acesso restrito.'); return store.exportConfig(); });
+  ipcMain.handle('workspace:import', () => { if (requireSession().user.role !== 'administrator') throw new Error('Acesso restrito.'); return store.importConfig(); });
   ipcMain.handle('app:open', async (_event, pluginId: string) => {
-    const state = store.get();
-    const plugin = catalog().find((item) => item.id === pluginId);
+    requireSession();
+    const state = scopedState();
+    const plugin = allowedCatalog().find((item) => item.id === pluginId);
     if (!plugin || !state.installedPluginIds.includes(pluginId) || state.disabledPluginIds.includes(pluginId)) {
       throw new Error('Aplicativo indisponível.');
     }
@@ -175,19 +260,7 @@ async function createWindow(): Promise<void> {
   if (devUrl) await mainWindow.loadURL(devUrl);
   else await mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
 
-  const saved = store.get();
-  const available = catalog().filter((plugin) => saved.openPluginIds.includes(plugin.id)
-    && saved.installedPluginIds.includes(plugin.id)
-    && !saved.disabledPluginIds.includes(plugin.id));
-  restoringRuntime = true;
-  for (const plugin of available) await viewManager.open(plugin, saved.appTabs[plugin.id]);
-  if (saved.lastActivePluginId && available.some((plugin) => plugin.id === saved.lastActivePluginId)) {
-    viewManager.show(saved.lastActivePluginId);
-  } else {
-    viewManager.hide();
-  }
-  restoringRuntime = false;
-  persistRuntime(viewManager.getTabsSnapshot(), viewManager.getActivePluginId());
+  viewManager.hide();
 }
 
 app.whenReady().then(async () => {

@@ -1,9 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppRuntimeState, PluginManifest, SalesOSApi, WorkspaceState } from '../shared/types';
+import type { AccessSession, AppRuntimeState, PluginManifest, RolePolicy, SalesOSApi, SimulatedUser, WorkspaceState } from '../shared/types';
 
 const api: SalesOSApi = {
   catalog: () => ipcRenderer.invoke('catalog:list') as Promise<PluginManifest[]>,
   state: () => ipcRenderer.invoke('workspace:get') as Promise<WorkspaceState>,
+  users: () => ipcRenderer.invoke('auth:users') as Promise<SimulatedUser[]>,
+  session: () => ipcRenderer.invoke('auth:session') as Promise<AccessSession | null>,
+  login: (userId) => ipcRenderer.invoke('auth:login', userId) as Promise<AccessSession>,
+  logout: () => ipcRenderer.invoke('auth:logout') as Promise<void>,
+  rolePolicies: () => ipcRenderer.invoke('access:policies') as Promise<RolePolicy[]>,
+  updateRolePolicy: (policy) => ipcRenderer.invoke('access:update-policy', policy) as Promise<RolePolicy[]>,
   install: (pluginId) => ipcRenderer.invoke('workspace:install', pluginId) as Promise<WorkspaceState>,
   uninstall: (pluginId) => ipcRenderer.invoke('workspace:uninstall', pluginId) as Promise<WorkspaceState>,
   toggleFavorite: (pluginId) => ipcRenderer.invoke('workspace:favorite', pluginId) as Promise<WorkspaceState>,

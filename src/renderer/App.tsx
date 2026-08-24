@@ -1,16 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft, ArrowRight, Blocks, ChevronRight, CircleUserRound, Download, Home,
-  LayoutGrid, LoaderCircle, Plus, RefreshCw, Search, Settings, ShieldCheck, Star,
+  LayoutGrid, LoaderCircle, LogOut, Plus, RefreshCw, Search, Settings, ShieldCheck, Star,
   Store, Upload, X,
 } from 'lucide-react';
-import type { OpenApp, PluginCategory, PluginManifest, WorkspaceState } from '../shared/types';
+import type { AccessSession, OpenApp, PluginCategory, PluginManifest, SimulatedUser, WorkspaceState } from '../shared/types';
+import AccessControl from './components/AccessControl';
+import LoginScreen from './components/LoginScreen';
 
 type Page = 'home' | 'store' | 'admin';
 
 const emptyState: WorkspaceState = {
   installedPluginIds: [], favoritePluginIds: [], recentPluginIds: [], openPluginIds: [], lastActivePluginId: null,
   appTabs: {}, disabledPluginIds: [], customPlugins: [],
+  rolePolicies: {
+    administrator: { role: 'administrator', label: 'Administrador', description: '', visiblePluginIds: [], defaultInstalledPluginIds: [] },
+    sdr: { role: 'sdr', label: 'SDR', description: '', visiblePluginIds: [], defaultInstalledPluginIds: [] },
+    coordinator: { role: 'coordinator', label: 'Coordenador', description: '', visiblePluginIds: [], defaultInstalledPluginIds: [] },
+  },
+  installedByRole: { administrator: [], sdr: [], coordinator: [] },
 };
 
 function AppIcon({ plugin, size = 'normal' }: { plugin: PluginManifest; size?: 'normal' | 'small' }) {
@@ -50,6 +58,9 @@ function AppCard({ plugin, installed, favorite, disabled, onOpen, onInstall, onF
 
 export default function App() {
   const [page, setPage] = useState<Page>('home');
+  const [session, setSession] = useState<AccessSession | null>(null);
+  const [users, setUsers] = useState<SimulatedUser[]>([]);
+  const [authLoading, setAuthLoading] = useState(true);
   const [catalog, setCatalog] = useState<PluginManifest[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceState>(emptyState);
   const [openApp, setOpenApp] = useState<OpenApp | null>(null);
@@ -66,7 +77,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    void refresh();
+    void Promise.all([window.salesOS.users(), window.salesOS.session()]).then(([availableUsers, currentSession]) => {
+      setUsers(availableUsers); setSession(currentSession); setAuthLoading(false); if (currentSession) void refresh();
+    });
     return window.salesOS.onAppState((runtime) => {
       setOpenApp(runtime.activeApp);
       setOpenPluginIds(runtime.openPluginIds);
@@ -86,6 +99,13 @@ export default function App() {
   });
   const categories = ['Todos', ...new Set(catalog.map((plugin) => plugin.category))] as Array<'Todos' | PluginCategory>;
 
+  const login = async (userId: string) => {
+    const nextSession = await window.salesOS.login(userId); setSession(nextSession); setPage('home'); await refresh();
+  };
+  const logout = async () => {
+    await window.salesOS.logout(); setSession(null); setCatalog([]); setWorkspace(emptyState); setOpenApp(null); setOpenPluginIds([]); setPage('home');
+  };
+
   const open = async (pluginId: string) => {
     await window.salesOS.openApp(pluginId);
     await refresh();
@@ -102,6 +122,9 @@ export default function App() {
     window.setTimeout(() => setNotice(''), 2800);
   };
 
+  if (authLoading) return <div className="auth-loading"><LoaderCircle className="spinning" /><span>Preparando Sales OS...</span></div>;
+  if (!session) return <LoginScreen users={users} onLogin={login} />;
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -109,7 +132,7 @@ export default function App() {
         <nav>
           <button className={page === 'home' && !openApp ? 'active' : ''} onClick={() => { void hideApp(); setPage('home'); }} title="Início"><Home /></button>
           <button className={page === 'store' && !openApp ? 'active' : ''} onClick={() => { void hideApp(); setPage('store'); }} title="Loja"><Store /></button>
-          <button className={page === 'admin' && !openApp ? 'active' : ''} onClick={() => { void hideApp(); setPage('admin'); }} title="Administração"><Settings /></button>
+          {session.user.role === 'administrator' && <button className={page === 'admin' && !openApp ? 'active' : ''} onClick={() => { void hideApp(); setPage('admin'); }} title="Administração"><Settings /></button>}
         </nav>
         {openPluginIds.length > 0 && <div className="running-apps">
           <span>ABERTOS</span>
@@ -122,7 +145,7 @@ export default function App() {
             </div>;
           })}
         </div>}
-        <div className="sidebar-bottom"><button title="Perfil"><CircleUserRound /></button></div>
+        <div className="sidebar-bottom"><button title={`Sair de ${session.user.name}`} onClick={() => void logout()}><LogOut /></button></div>
       </aside>
 
       <header className={`topbar ${openApp ? 'app-mode' : ''}`}>
@@ -160,7 +183,7 @@ export default function App() {
           <>
             <div className="brand"><strong>Sales OS</strong><span>Workspace comercial</span></div>
             <div className="top-search"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar aplicativos, tarefas e recursos" /></div>
-            <div className="status"><span></span> Ambiente protegido</div>
+            <div className="user-session"><span className="user-avatar small">{session.user.initials}</span><div><strong>{session.user.name}</strong><small>{session.user.roleLabel}</small></div><button onClick={() => void logout()} title="Sair"><LogOut /></button></div>
           </>
         )}
       </header>
@@ -169,7 +192,7 @@ export default function App() {
         {page === 'home' && (
           <>
             <section className="hero">
-              <div><span className="eyebrow">QUINTA-FEIRA · 13 DE AGOSTO</span><h1>Boa tarde, Yago.</h1><p>Seu ambiente comercial está pronto para trabalhar.</p></div>
+              <div><span className="eyebrow">WORKSPACE · {session.user.roleLabel.toUpperCase()}</span><h1>Olá, {session.user.name.split(' ')[0]}.</h1><p>Seu ambiente comercial foi configurado para o seu cargo.</p></div>
               <div className="hero-stat"><span>Aplicativos ativos</span><strong>{installed.length - workspace.disabledPluginIds.length}</strong><small>de {catalog.length} disponíveis</small></div>
             </section>
 
@@ -190,9 +213,10 @@ export default function App() {
           </>
         )}
 
-        {page === 'admin' && (
+        {page === 'admin' && session.user.role === 'administrator' && (
           <>
-            <section className="page-heading"><div><span className="eyebrow">ADMINISTRAÇÃO LOCAL</span><h1>Aplicativos e políticas</h1><p>Gerencie o catálogo disponível neste dispositivo.</p></div><button className="button primary" onClick={() => setShowAdd(true)}><Plus size={17} /> Adicionar aplicativo</button></section>
+            <AccessControl catalog={catalog} notify={toast} />
+            <section className="page-heading admin-app-heading"><div><span className="eyebrow">ADMINISTRAÇÃO LOCAL</span><h1>Aplicativos e políticas</h1><p>Gerencie o catálogo disponível neste dispositivo.</p></div><button className="button primary" onClick={() => setShowAdd(true)}><Plus size={17} /> Adicionar aplicativo</button></section>
             <div className="admin-actions"><button onClick={async () => { const file = await window.salesOS.exportConfig(); if (file) toast('Configuração exportada.'); }}><Download /> Exportar configuração</button><button onClick={async () => { const state = await window.salesOS.importConfig(); if (state) { setWorkspace(state); await refresh(); toast('Configuração importada.'); } }}><Upload /> Importar configuração</button></div>
             <div className="admin-table">
               <div className="table-row table-head"><span>Aplicativo</span><span>Categoria</span><span>Permissões</span><span>Status</span><span></span></div>
